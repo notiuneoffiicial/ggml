@@ -686,8 +686,15 @@ void ggml_metal_rsets_free(ggml_metal_rsets_t rsets) {
         return;
     }
 
-    // note: if you hit this assert, most likely you haven't deallocated all Metal resources before exiting
-    GGML_ASSERT([rsets->data count] == 0);
+    // Tiune patch: live residency sets here mean the host app is tearing the
+    // device down (usually exit() running this dylib's static destructors)
+    // before every Metal resource was freed. Upstream aborts to flag the leak;
+    // in an end-user app that turns every such quit into a SIGABRT crash
+    // report. The process is dying anyway — warn and release what's left.
+    if ([rsets->data count] != 0) {
+        GGML_LOG_WARN("%s: %d residency set(s) still live at teardown — Metal resources not all freed before exit; releasing anyway\n",
+                __func__, (int) [rsets->data count]);
+    }
 
     atomic_store_explicit(&rsets->d_stop, true, memory_order_relaxed);
 
